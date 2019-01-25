@@ -1,3 +1,5 @@
+import datetime
+
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -58,8 +60,10 @@ class Team(Account):
         return "{} also known as {}".format(self.title, self.shortTitle)
 
     def toJson(self):
+        playerList = [player.toJson() for player in self.playerList.all()]
         superDict = super(Team, self).toJson()
         superDict['shortTitle'] = self.shortTitle
+        superDict['playerList'] = playerList
         superDict['type'] = 'Team'
         return superDict
 
@@ -68,13 +72,20 @@ class Team(Account):
 
 
 class Player(Account):
+    bornDate = models.DateTimeField()
+    post = models.CharField(max_length=100)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='playerList', null=True)
 
     def __str__(self):
         return "{}".format(self.title)
 
     def toJson(self):
+        naive = self.bornDate.replace(tzinfo=None)
         superDict = super(Player, self).toJson()
         superDict['type'] = 'Player'
+        superDict['age'] = (datetime.datetime.today() - naive).days / 365
+        superDict['post'] = self.post
+        superDict['teamId'] = self.team.id
         return superDict
 
     class Meta:
@@ -82,33 +93,58 @@ class Player(Account):
 
 
 class League(Account):
-    teamList = models.ManyToManyField(Team, through='LeagueTeam')
+    startDate = models.DateTimeField()
+    finished = models.BooleanField(default=False)
 
     def __str__(self):
         return "{}".format(self.title)
 
     def toJson(self):
-        # todo: add teamList
-        leagueTeamTableRowData = []
-        for team in self.teamList.all():
-            leagueTeamTableRowData.append({
+        matchList = Match.objects.all().filter(league=self)
+
+        teamList = []
+        for match in matchList:
+            if match.awayTeam not in teamList:
+                teamList.append(match.awayTeam)
+            if match.homeTeam not in teamList:
+                teamList.append(match.homeTeam)
+
+        leagueTeamTableRowList = []
+        for team in teamList:
+            points = 0
+            games = 0
+            goalFor = 0
+            goalAgainst = 0
+            for match in Match.objects.all().filter(league=self):
+                if match.homeTeam == team:
+                    games += 1
+                    points += match.homePoints
+                    goalFor += match.homeScore
+                    goalAgainst += match.awayScore
+                if match.awayTeam == team:
+                    games += 1
+                    points += match.awayPoints
+                    goalFor += match.awayScore
+                    goalAgainst += match.homeScore
+
+            leagueTeamTableRowList.append({
                 "banner": team.toJson(),
                 "rowData": [
-                    "rank1",
-                    3,
-                    team.created_at.date(),
+                    points,
+                    games,
+                    goalFor,
+                    goalAgainst,
+                    goalFor - goalAgainst,
                 ],
             })
 
-        teamList = [team.toJson() for team in self.teamList.all()]
         matchList = [match.toJson() for match in self.matchList.all()]
         superDict = super(League, self).toJson()
-        superDict['teamList'] = teamList
         superDict['matchList'] = matchList
         superDict['nextMatch'] = self.matchList.all()[0].toJson()
         superDict['leagueTeamTable'] = {
-            'colList': ["STATISTICS", "rank", "points", "last game"],
-            'tableRowList': leagueTeamTableRowData,
+            'colList': ["LEAGUE TABLE", "points", "games", "score for", "score against", "score difference"],
+            'tableRowList': leagueTeamTableRowList,
         }
         superDict['type'] = 'League'
         return superDict
@@ -171,11 +207,19 @@ class Stadium(Account):
 
 
 class Match(models.Model):
-    homeTeam = models.OneToOneField(Team, related_name='homeTeam', on_delete=models.CASCADE)
-    awayTeam = models.OneToOneField(Team, related_name='awayTeam', on_delete=models.CASCADE)
+    TYPE_LIST = (
+        ('Football', 'Football'),
+        ('Basketball', 'Basketball'),
+    )
+
+    type = models.CharField(max_length=100, choices=TYPE_LIST)
+    homeTeam = models.ForeignKey(Team, related_name='homeTeam', on_delete=models.CASCADE)
+    awayTeam = models.ForeignKey(Team, related_name='awayTeam', on_delete=models.CASCADE)
     homeScore = models.IntegerField()
     awayScore = models.IntegerField()
-    date = models.DateTimeField(auto_now_add=True)
+    homePoints = models.IntegerField()
+    awayPoints = models.IntegerField()
+    date = models.DateTimeField()
     stadium = models.ForeignKey(Stadium, on_delete=models.CASCADE)
     matchStatistic = models.ForeignKey(MatchStatistic, on_delete=models.CASCADE)
     time = models.IntegerField()
@@ -190,12 +234,15 @@ class Match(models.Model):
         awayEventList = [event.toJson() for event in Event.objects.all().filter(team=self.awayTeam, match=self)]
         return dict(
             id=self.id,
+            type=self.type,
             homeTeam=self.homeTeam.toJson(),
             homeEventList=homeEventList,
             awayTeam=self.awayTeam.toJson(),
             awayEventList=awayEventList,
             homeScore=self.homeScore,
             awayScore=self.awayScore,
+            homePoints=self.homePoints,
+            awayPoints=self.awayPoints,
             date=self.date.timestamp(),
             stadium=self.stadium.toJson(),
             matchStatistics=self.matchStatistic.toJson(),
@@ -240,6 +287,8 @@ class Event(models.Model):
 
 class Tag(models.Model):
     title = models.CharField(max_length=100)
+    accountId = models.IntegerField(null=True)
+    accountType = models.CharField(max_length=100, null=True)
 
     def __str__(self):
         return "{}".format(self.title)
@@ -247,6 +296,8 @@ class Tag(models.Model):
     def toJson(self):
         return dict(
             id=self.id,
+            accountId=self.accountId,
+            accountType=self.accountType,
             title=self.title,
         )
 
@@ -305,32 +356,6 @@ class Comment(models.Model):
 
     class Meta:
         verbose_name_plural = "Comments"
-
-
-class LeagueTeam(models.Model):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    league = models.ForeignKey(League, on_delete=models.CASCADE)
-    rank = models.IntegerField()
-    points = models.IntegerField()
-    played = models.IntegerField()
-    goalDifference = models.IntegerField()
-
-    def __str__(self):
-        return "{} team in {} league".format(self.team.title, self.league.title)
-
-    def toJson(self):
-        return dict(
-            id=self.id,
-            teamId=self.team.id,
-            leagueId=self.league.id,
-            rank=self.rank,
-            points=self.points,
-            played=self.played,
-            goalDifference=self.goalDifference,
-        )
-
-    class Meta:
-        verbose_name_plural = "LeagueTeams"
 
 
 class NewsTag(models.Model):

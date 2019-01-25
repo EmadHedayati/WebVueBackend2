@@ -1,3 +1,6 @@
+import datetime
+
+from django.db.models import Q
 from django.http import JsonResponse
 from news.models import *
 
@@ -18,136 +21,192 @@ def test(request):
         "tags": [item.toJson() for item in Tag.objects.all()],
         "news": [item.toJson() for item in News.objects.all()],
         "comments": [item.toJson() for item in Comment.objects.all()],
-        "leagueTeams": [item.toJson() for item in LeagueTeam.objects.all()],
         "players": [item.toJson() for item in Player.objects.all()],
         "newsTags": [item.toJson() for item in NewsTag.objects.all()],
     }
     return JsonResponse(result, safe=False)
 
 
+def getNewsRelatedToAccount(model):
+    # todo: implement this
+    return [item.toJson() for item in News.objects.all()[:3]]
+
+
+def getSliderNews():
+    # todo: implement this
+    return [item.toJson() for item in News.objects.all()[:5]]
+
+
+def getLatestNews():
+    return [item.toJson() for item in News.objects.all()[:3]]
+
+
+def getNews(model):
+    if isinstance(model, News):
+        return [item.toJson() for item in News.objects.all().filter(author=model.author)[:3]]
+    if isinstance(model, User):
+        # todo: query favourite news for user
+        return [item.toJson() for item in News.objects.all()[:3]]
+    return getNewsRelatedToAccount(model)
+
+
 def homeIndex(request):
     result = {
-        "sliderNewsList": [item.toJson() for item in News.objects.all()],
-        "latestNewsList": [item.toJson() for item in News.objects.all()],
-        "favouriteNewsList": [item.toJson() for item in News.objects.all()],
+        "sliderNewsList": getSliderNews(),
+        "latestNewsList": getLatestNews(),
+        "favouriteNewsList": getLatestNews(),  # todo: find user from request
         "footballMatchList": {
-            "latest": [item.toJson() for item in Match.objects.all()],
-            "favourites": [item.toJson() for item in Match.objects.all()],
+            "latest": [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]],
+            "favourites": [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]],
+            # todo: find user from request
         },
         "basketballMatchList": {
-            "latest": [item.toJson() for item in Match.objects.all()],
-            "favourites": [item.toJson() for item in Match.objects.all()],
+            "latest": [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:6]],
+            "favourites": [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:6]],
+            # todo: find user from request
         },
     }
     return JsonResponse(result, safe=False)
 
 
 def LeaguesIndex(request):
-    result = {
-        "upcomingLeagueList": [item.toJson() for item in League.objects.all()],
-        "finishedLeagueList": [item.toJson() for item in League.objects.all()],
-    }
+    result = {}
+    if request.GET.get('q'):
+        result = {
+            "upcomingLeagueList": [item.toJson() for item in League.objects.all().filter(
+                    startDate__gt=datetime.date.today(), title__exact=request.GET.get('q'))],
+            "finishedLeagueList": [item.toJson() for item in League.objects.all().filter(
+                    finished=True, title__exact=request.GET.get('q'))],
+        }
+    else:
+        result = {
+            "upcomingLeagueList": [item.toJson() for item in
+                                   League.objects.all().filter(startDate__gt=datetime.date.today())],
+            "finishedLeagueList": [item.toJson() for item in League.objects.all().filter(finished=True)],
+        }
     return JsonResponse(result, safe=False)
 
 
 def LeaguesGet(request, leagueId):
+    league = League.objects.get(id=leagueId)
     result = {
-        "league": League.objects.get(id=leagueId).toJson(),
+        "league": league.toJson(),
     }
     return JsonResponse(result, safe=False)
 
 
 def MatchesGet(request, matchId):
+    match = Match.objects.get(id=matchId)
     result = {
-        "match": Match.objects.get(id=matchId).toJson(),
-        "latestNewsList": [item.toJson() for item in News.objects.all()],
+        "match": match.toJson(),
+        "latestNewsList": getNews(match),
     }
     return JsonResponse(result, safe=False)
 
 
 def NewsGet(request, newsId):
+    news = News.objects.get(id=newsId)
     result = {
-        "news": News.objects.get(id=newsId).toJson(),
-        "relatedNewsList": [item.toJson() for item in News.objects.all()],
+        "news": news.toJson(),
+        "relatedNewsList": getNews(news),
     }
     return JsonResponse(result, safe=False)
 
 
 def PlayersGet(request, playerId):
-    statisticsTableRowData = []
-    for match in Match.objects.all():
-        statisticsTableRowData.append({
-            "banner": Player.objects.get(id=playerId).toJson(),
-            "rowData": [
-                "attack",
-                3,
-                match.date.date(),
-                match.stadium.__str__(),
-            ],
-        })
+    player = Player.objects.get(id=playerId)
 
-    detailsTableRowData = []
-    for player in Player.objects.all():
-        detailsTableRowData.append({
-            "banner": Player.objects.get(id=playerId).toJson(),
-            "rowData": [
-                player.title,
-                5,
-                player.created_at.date(),
-                12,
-            ],
-        })
+    eventListDict = dict()
+    for event in Event.objects.all().filter(player=player):
+        if event.title in eventListDict:
+            eventListDict[event.title] += 1
+        else:
+            eventListDict[event.title] = 1
+
+    statisticsTableRowList = [{
+        "banner": player.toJson(),
+        "rowData": [value for value in eventListDict.values()],
+    }]
+
+    naive = player.bornDate.replace(tzinfo=None)
+    detailsTableRowList = [{
+        "banner": player.toJson(),
+        "rowData": [
+            (datetime.datetime.today() - naive).days / 365,
+            player.post,
+            player.team.title,
+        ],
+    }]
 
     result = {
-        "player": Player.objects.get(id=playerId).toJson(),
+        "player": player.toJson(),
         "latestNewsList": [item.toJson() for item in News.objects.all()],
         "statisticsTable": {
-            "colList": ["STATISTICS", "post", "goals", "acquired", "stadium"],
-            "tableRowList": statisticsTableRowData,
+            "colList": ['STATISTICS'] + [key for key in eventListDict.keys()],
+            "tableRowList": statisticsTableRowList,
         },
         "detailsTable": {
-            "colList": ["DETAILS", "title", "goals", "date", "games"],
-            "tableRowList": detailsTableRowData,
+            "colList": ["DETAILS", "age", "post", "team"],
+            "tableRowList": detailsTableRowList,
         },
     }
     return JsonResponse(result, safe=False)
 
 
 def TeamsGet(request, teamId):
-    matchesTableRowData = []
-    for match in Match.objects.all():
-        matchesTableRowData.append({
-            "banner": match.awayTeam.toJson(),
+    team = Team.objects.get(id=teamId)
+
+    matchList = Match.objects.all().filter(Q(homeTeam=team) | Q(awayTeam=team))
+
+    matchesTableRowList = []
+    for match in matchList:
+        otherTeam = {}
+        goals = 0
+        if match.awayTeam.id == team.id:
+            otherTeam = match.homeTeam
+            goals = match.awayScore
+        else:
+            otherTeam = match.awayTeam
+            goals = match.homeScore
+
+        status = "win"
+        if (match.homeTeam.id == team.id and match.homeScore < match.awayScore) or (
+                match.awayTeam.id == team.id and match.homeScore > match.awayScore):
+            status = "lost"
+        if match.homeScore == match.awayScore:
+            status = "tied"
+
+        matchesTableRowList.append({
+            "banner": otherTeam.toJson(),
             "rowData": [
-                "win",
-                3,
+                status,
+                goals,
                 match.date.date(),
                 match.stadium.__str__(),
             ],
         })
 
-    playersTableRowData = []
-    for player in Player.objects.all():
-        playersTableRowData.append({
+    playerList = [player for player in team.playerList.all()]
+
+    playersTableRowList = []
+    for player in playerList:
+        playersTableRowList.append({
             "banner": player.toJson(),
             "rowData": [
-                player.title,
-                5,
-                player.created_at.date(),
-                12,
+                player.post,
             ],
         })
 
     result = {
-        "team": Team.objects.get(id=teamId).toJson(),
+        "team": team.toJson(),
         "latestNewsList": [item.toJson() for item in News.objects.all()],
         "matchesTable": {
             "colList": ["MATCHES", "status", "goals", "date", "stadium"],
-            "tableRowList": matchesTableRowData,
+            "tableRowList": matchesTableRowList,
         },
         "playersTable": {
-            "colList": ["PLAYERS", "title", "games", "date", "goals"],
-            "tableRowList": playersTableRowData,
+            "colList": ["PLAYERS", "post"],
+            "tableRowList": playersTableRowList,
         },
     }
     return JsonResponse(result, safe=False)
