@@ -60,6 +60,7 @@ class Team(Account):
     def toJson(self):
         superDict = super(Team, self).toJson()
         superDict['shortTitle'] = self.shortTitle
+        superDict['type'] = 'Team'
         return superDict
 
     class Meta:
@@ -73,6 +74,7 @@ class Player(Account):
 
     def toJson(self):
         superDict = super(Player, self).toJson()
+        superDict['type'] = 'Player'
         return superDict
 
     class Meta:
@@ -88,8 +90,11 @@ class League(Account):
     def toJson(self):
         # todo: add teamList
         teamList = [team.toJson() for team in self.teamList.all()]
+        matchList = [match.toJson() for match in self.matchList.all()]
         superDict = super(League, self).toJson()
         superDict['teamList'] = teamList
+        superDict['matchList'] = matchList
+        superDict['type'] = 'League'
         return superDict
 
     class Meta:
@@ -142,6 +147,7 @@ class Stadium(Account):
 
     def toJson(self):
         superDict = super(Stadium, self).toJson()
+        superDict['type'] = 'Stadium'
         return superDict
 
     class Meta:
@@ -158,7 +164,7 @@ class Match(models.Model):
     matchStatistic = models.ForeignKey(MatchStatistic, on_delete=models.CASCADE)
     time = models.IntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
-    league = models.ForeignKey(League, on_delete=models.CASCADE)
+    league = models.ForeignKey(League, on_delete=models.CASCADE, related_name='matchList')
 
     def __str__(self):
         return "{} vs {} in {}".format(self.homeTeam.shortTitle, self.awayTeam.shortTitle, self.date.date())

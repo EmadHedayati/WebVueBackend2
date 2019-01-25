@@ -1,5 +1,7 @@
 from django.http import JsonResponse
 from news.models import *
+
+
 # Create your views here.
 
 
@@ -82,13 +84,25 @@ def PlayersGet(request, playerId):
 
 
 def TeamsGet(request, teamId):
+    matchesTableDataRow = []
+    for match in Match.objects.all():
+        matchesTableDataRow.append({
+            "banner": match.awayTeam.toJson(),
+            "rowData": [
+                "win",
+                3,
+                match.date.date(),
+                match.stadium.__str__(),
+            ],
+        })
+
     result = {
         "team": Team.objects.get(id=teamId).toJson(),
         "latestNewsList": [item.toJson() for item in News.objects.all()],
-        "matchesTable": [],
+        "matchesTable": {
+            "colList": ["MATCHES", "status", "goals", "data", "stadium"],
+            "tableRowList": matchesTableDataRow,
+        },
         "playersTable": [],
     }
     return JsonResponse(result, safe=False)
-
-
-
