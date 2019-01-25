@@ -89,11 +89,27 @@ class League(Account):
 
     def toJson(self):
         # todo: add teamList
+        leagueTeamTableRowData = []
+        for team in self.teamList.all():
+            leagueTeamTableRowData.append({
+                "banner": team.toJson(),
+                "rowData": [
+                    "rank1",
+                    3,
+                    team.created_at.date(),
+                ],
+            })
+
         teamList = [team.toJson() for team in self.teamList.all()]
         matchList = [match.toJson() for match in self.matchList.all()]
         superDict = super(League, self).toJson()
         superDict['teamList'] = teamList
         superDict['matchList'] = matchList
+        superDict['nextMatch'] = self.matchList.all()[0].toJson()
+        superDict['leagueTeamTable'] = {
+            'colList': ["STATISTICS", "rank", "points", "last game"],
+            'tableRowList': leagueTeamTableRowData,
+        }
         superDict['type'] = 'League'
         return superDict
 
@@ -170,15 +186,19 @@ class Match(models.Model):
         return "{} vs {} in {}".format(self.homeTeam.shortTitle, self.awayTeam.shortTitle, self.date.date())
 
     def toJson(self):
+        homeEventList = [event.toJson() for event in Event.objects.all().filter(team=self.homeTeam, match=self)]
+        awayEventList = [event.toJson() for event in Event.objects.all().filter(team=self.awayTeam, match=self)]
         return dict(
             id=self.id,
             homeTeam=self.homeTeam.toJson(),
+            homeEventList=homeEventList,
             awayTeam=self.awayTeam.toJson(),
+            awayEventList=awayEventList,
             homeScore=self.homeScore,
             awayScore=self.awayScore,
             date=self.date.timestamp(),
             stadium=self.stadium.toJson(),
-            matchStatistic=self.matchStatistic.toJson(),
+            matchStatistics=self.matchStatistic.toJson(),
             time=self.time,
             dateCreated=self.created_at.timestamp(),
             leagueId=self.league.id,
@@ -248,6 +268,7 @@ class News(models.Model):
 
     def toJson(self):
         tagList = [tag.toJson() for tag in self.tagList.all()]
+        commentList = [comment.toJson() for comment in self.commentList.all()]
         return dict(
             id=self.id,
             title=self.title,
@@ -256,6 +277,7 @@ class News(models.Model):
             image=self.image.url,
             author=self.author.toJson(),
             tagList=tagList,
+            commentList=commentList,
             dateCreated=self.created_at.timestamp(),
         )
 
@@ -265,9 +287,9 @@ class News(models.Model):
 
 class Comment(models.Model):
     body = models.CharField(max_length=500)
-    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    author = models.ForeignKey(NewsUser, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-    news = models.ForeignKey(News, on_delete=models.CASCADE, null=False)
+    news = models.ForeignKey(News, on_delete=models.CASCADE, null=False, related_name='commentList')
 
     def __str__(self):
         return "{} by {}".format(self.body, self.author.username)
@@ -277,7 +299,7 @@ class Comment(models.Model):
             id=self.id,
             body=self.body,
             dateCreated=self.created_at.timestamp(),
-            authorId=self.author.id,
+            author=self.author.toJson(),
             newsId=self.news.id,
         )
 

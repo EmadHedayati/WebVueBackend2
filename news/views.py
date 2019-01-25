@@ -74,19 +74,49 @@ def NewsGet(request, newsId):
 
 
 def PlayersGet(request, playerId):
+    statisticsTableRowData = []
+    for match in Match.objects.all():
+        statisticsTableRowData.append({
+            "banner": Player.objects.get(id=playerId).toJson(),
+            "rowData": [
+                "attack",
+                3,
+                match.date.date(),
+                match.stadium.__str__(),
+            ],
+        })
+
+    detailsTableRowData = []
+    for player in Player.objects.all():
+        detailsTableRowData.append({
+            "banner": Player.objects.get(id=playerId).toJson(),
+            "rowData": [
+                player.title,
+                5,
+                player.created_at.date(),
+                12,
+            ],
+        })
+
     result = {
         "player": Player.objects.get(id=playerId).toJson(),
         "latestNewsList": [item.toJson() for item in News.objects.all()],
-        "statisticsTable": [],
-        "detailsTable": [],
+        "statisticsTable": {
+            "colList": ["STATISTICS", "post", "goals", "acquired", "stadium"],
+            "tableRowList": statisticsTableRowData,
+        },
+        "detailsTable": {
+            "colList": ["DETAILS", "title", "goals", "date", "games"],
+            "tableRowList": detailsTableRowData,
+        },
     }
     return JsonResponse(result, safe=False)
 
 
 def TeamsGet(request, teamId):
-    matchesTableDataRow = []
+    matchesTableRowData = []
     for match in Match.objects.all():
-        matchesTableDataRow.append({
+        matchesTableRowData.append({
             "banner": match.awayTeam.toJson(),
             "rowData": [
                 "win",
@@ -96,13 +126,28 @@ def TeamsGet(request, teamId):
             ],
         })
 
+    playersTableRowData = []
+    for player in Player.objects.all():
+        playersTableRowData.append({
+            "banner": player.toJson(),
+            "rowData": [
+                player.title,
+                5,
+                player.created_at.date(),
+                12,
+            ],
+        })
+
     result = {
         "team": Team.objects.get(id=teamId).toJson(),
         "latestNewsList": [item.toJson() for item in News.objects.all()],
         "matchesTable": {
-            "colList": ["MATCHES", "status", "goals", "data", "stadium"],
-            "tableRowList": matchesTableDataRow,
+            "colList": ["MATCHES", "status", "goals", "date", "stadium"],
+            "tableRowList": matchesTableRowData,
         },
-        "playersTable": [],
+        "playersTable": {
+            "colList": ["PLAYERS", "title", "games", "date", "goals"],
+            "tableRowList": playersTableRowData,
+        },
     }
     return JsonResponse(result, safe=False)
