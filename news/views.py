@@ -1,11 +1,102 @@
 import datetime
+import json
 
 from django.db.models import Q
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
 from news.models import *
+
+from django.contrib.auth import login, authenticate
+from django.utils.encoding import force_bytes, force_text
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from .tokens import account_activation_token
+from django.contrib.auth.models import User
 
 
 # Create your views here.
+
+
+@csrf_exempt
+def signup(request):
+    #         current_site = get_current_site(request)
+    #         mail_subject = 'Activate your blog account.'
+    #         message = render_to_string('acc_activate_email.html', {
+    #             'user': user,
+    #             'domain': current_site.domain,
+    #             'uid': urlsafe_base64_encode(force_bytes(user.pk)).decode(),
+    #             'token': account_activation_token.make_token(user),
+    #         })
+    #         to_email = form.cleaned_data.get('email')
+    #         email = EmailMessage(
+    #                     mail_subject, message, to=[to_email]
+    #         )
+    #         # email.send()
+
+    body = json.loads(request.body)
+    if User.objects.all().filter(username=body['username']).count() > 0 is not None:
+        result = {
+            "error": "This Username Already Exist"
+        }
+    else:
+        user = User.objects.create_user(body['username'], body['email'], body['password'])
+        user.is_active = False
+        user.save()
+        newsUser = NewsUser.objects.create(user=user, token=uuid.uuid4())
+        newsUser.save()
+        result = {
+            'activationUrl': 'http://127.0.0.1:8000/api/activate/' + urlsafe_base64_encode(force_bytes(user.pk)).decode() + '/' +
+                             account_activation_token.make_token(user),
+        }
+    return JsonResponse(result, safe=False)
+
+
+@csrf_exempt
+def login(request):
+    body = json.loads(request.body)
+    user = authenticate(username=body['username'], password=body['password'])
+    if user is not None:
+        if user.is_active:
+            result = {
+                "user": NewsUser.objects.all().filter(user=user).first().toJson()
+            }
+        else:
+            result = {
+                "error": 'Please Activate Your Account'
+            }
+    else:
+        result = {
+            "error": "Login Failed"
+        }
+    return JsonResponse(result, safe=False)
+
+
+@csrf_exempt
+def activate(request, uidb64, token):
+    try:
+        uid = force_text(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except(TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+    if user is not None and account_activation_token.check_token(user, token):
+        user.is_active = True
+        user.save()
+        result = {
+            "activation": True
+        }
+    else:
+        result = {
+            "activation": False
+        }
+    return JsonResponse(result, safe=False)
+
+
+def getUser(request):
+    try:
+        user = authenticate(username=request.META['HTTP_USERNAME'], password=request.META['HTTP_PASSWORD'])
+        return user
+    except:
+        return None
 
 
 def test(request):
@@ -29,7 +120,21 @@ def test(request):
 
 def getNewsRelatedToAccount(model):
     # todo: implement this
-    return [item.toJson() for item in News.objects.all()[:3]]
+    type = ''
+    if isinstance(model, Match):
+        type = 'Match'
+    if isinstance(model, League):
+        type = 'League'
+    if isinstance(model, Team):
+        type = 'Team'
+    if isinstance(model, Player):
+        type = 'Player'
+    if isinstance(model, Stadium):
+        type = 'Stadium'
+
+    tagList = Tag.objects.all().filter(accountType=type, accountId=model.id)
+    newsList = [newsTag.news for newsTag in NewsTag.objects.all().filter(tag__in=tagList)[:3]]
+    return [item.toJson() for item in newsList]
 
 
 def getSliderNews():
@@ -54,18 +159,19 @@ def homeIndex(request):
     result = {
         "sliderNewsList": getSliderNews(),
         "latestNewsList": getLatestNews(),
-        "favouriteNewsList": getLatestNews(),  # todo: find user from request
         "footballMatchList": {
             "latest": [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]],
-            "favourites": [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]],
-            # todo: find user from request
         },
         "basketballMatchList": {
             "latest": [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:6]],
-            "favourites": [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:6]],
-            # todo: find user from request
         },
     }
+    user = getUser(request)
+    if user is not None:
+        result['favouriteNewsList'] = getNews(user)
+        result['footballMatchList']['favourites'] = [item.toJson() for item in Match.objects.all().filter(type='Football')[:2]]
+        result['basketballMatchList']['favourites'] = [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:2]]
+
     return JsonResponse(result, safe=False)
 
 
@@ -74,9 +180,9 @@ def LeaguesIndex(request):
     if request.GET.get('q'):
         result = {
             "upcomingLeagueList": [item.toJson() for item in League.objects.all().filter(
-                    startDate__gt=datetime.date.today(), title__exact=request.GET.get('q'))],
+                startDate__gt=datetime.date.today(), title__exact=request.GET.get('q'))],
             "finishedLeagueList": [item.toJson() for item in League.objects.all().filter(
-                    finished=True, title__exact=request.GET.get('q'))],
+                finished=True, title__exact=request.GET.get('q'))],
         }
     else:
         result = {
@@ -140,7 +246,7 @@ def PlayersGet(request, playerId):
 
     result = {
         "player": player.toJson(),
-        "latestNewsList": [item.toJson() for item in News.objects.all()],
+        "latestNewsList": getNews(player),
         "statisticsTable": {
             "colList": ['STATISTICS'] + [key for key in eventListDict.keys()],
             "tableRowList": statisticsTableRowList,
@@ -199,7 +305,7 @@ def TeamsGet(request, teamId):
 
     result = {
         "team": team.toJson(),
-        "latestNewsList": [item.toJson() for item in News.objects.all()],
+        "latestNewsList": getNews(team),
         "matchesTable": {
             "colList": ["MATCHES", "status", "goals", "date", "stadium"],
             "tableRowList": matchesTableRowList,

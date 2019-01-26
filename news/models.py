@@ -2,7 +2,9 @@ import datetime
 
 from django.db import models
 from django.contrib.auth.models import User
-
+from django.dispatch import receiver
+from django.db.models.signals import post_save
+import uuid
 
 # Create your models here.
 
@@ -16,13 +18,16 @@ class NewsUser(models.Model):
         return "{}".format(self.user.username)
 
     def toJson(self):
+        # image = ''
+        # if self.image is not None:
+        #     image = self.image.url
         return dict(
             id=self.user.id,
             title=self.user.username,
             fullname=self.user.get_full_name(),
             username=self.user.username,
             email=self.user.email,
-            image=self.image.url,
+            # image=image,
         )
 
     class Meta:
@@ -286,9 +291,17 @@ class Event(models.Model):
 
 
 class Tag(models.Model):
+    TYPE_LIST = (
+        ('Match', 'Match'),
+        ('League', 'League'),
+        ('Team', 'Team'),
+        ('Player', 'Player'),
+        ('Stadium', 'Stadium'),
+    )
+
     title = models.CharField(max_length=100)
+    accountType = models.CharField(max_length=100, choices=TYPE_LIST, null=True)
     accountId = models.IntegerField(null=True)
-    accountType = models.CharField(max_length=100, null=True)
 
     def __str__(self):
         return "{}".format(self.title)
