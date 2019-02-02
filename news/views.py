@@ -131,26 +131,37 @@ def test(request):
 
 
 def getSliderNews():
-    # todo: implement this
-    return [item.toJson() for item in News.objects.all()[:5]]
+    return News.objects.all()[:5]
 
 
 def getLatestNews():
-    return [item.toJson() for item in News.objects.all()[:10]] \
-           + [item.toJson() for item in News.objects.all()[:10]] \
-           + [item.toJson() for item in News.objects.all()[:10]] \
-           + [item.toJson() for item in News.objects.all()[:10]] \
-           + [item.toJson() for item in News.objects.all()[:10]] \
-           + [item.toJson() for item in News.objects.all()[:10]] \
-           + [item.toJson() for item in News.objects.all()[:10]]
+    return News.objects.all()[:10]
 
 
 def getRelatedNews(news):
-    return [item.toJson() for item in News.objects.all().filter(author=news.author)[:3]]
+    newsList = []
+    newsList.extend(News.objects.all().filter(author=news.author).exclude(id=news.id))
+    for tag in news.tagList.all():
+        newsList.extend([newsTag.news for newsTag in NewsTag.objects.filter(tag=tag).exclude(id=news.id)])
+    newsList = list(set(newsList))
+    return newsList
 
 
 def getUserNews(user):
-    return [item.toJson() for item in News.objects.all()[:3]]
+    newsList = []
+    subscriptionList = Subscription.objects.filter(newsUser=user)
+    for subscription in subscriptionList:
+        if subscription.accountType == 'Match':
+            newsList.extend(getModelNews(Match.objects.filter(id=subscription.accountId).first()))
+        elif subscription.accountType == 'League':
+            newsList.extend(getModelNews(League.objects.filter(id=subscription.accountId).first()))
+        elif subscription.accountType == 'Team':
+            newsList.extend(getModelNews(Team.objects.filter(id=subscription.accountId).first()))
+        elif subscription.accountType == 'Player':
+            newsList.extend(getModelNews(Player.objects.filter(id=subscription.accountId).first()))
+        elif subscription.accountType == 'Stadium':
+            newsList.extend(getModelNews(Stadium.objects.filter(id=subscription.accountId).first()))
+    return newsList[:3]
 
 
 def getModelNews(model):
@@ -170,7 +181,7 @@ def getModelNews(model):
 
     tagList = Tag.objects.all().filter(accountType=type, accountId=model.id)
     newsList = [newsTag.news for newsTag in NewsTag.objects.all().filter(tag__in=tagList)[:3]]
-    return [item.toJson() for item in newsList]
+    return newsList
 
 
 def isSubscribed(user, accountType, accountId):
@@ -234,10 +245,18 @@ def getModelJsonWithSubscription(user, model):
     return json
 
 
+def getDateWithDeltaDays(delta):
+    today = datetime.date.today()
+    deltaDays = datetime.timedelta(days=abs(delta))
+    if delta > 0:
+        return today + deltaDays
+    else:
+        return today - deltaDays
+
 def homeIndex(request):
     result = {
-        "sliderNewsList": getSliderNews(),
-        "latestNewsList": getLatestNews(),
+        "sliderNewsList": [item.toJson() for item in getSliderNews()],
+        "latestNewsList": [item.toJson() for item in getLatestNews()],
         "footballMatchList": {
             "latest": [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]],
         },
@@ -247,12 +266,23 @@ def homeIndex(request):
     }
     user = getUser(request)
     if user is not None:
-        result['favouriteNewsList'] = getUserNews(user)
-        result['footballMatchList']['favourites'] \
-            = [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]]
-        result['basketballMatchList']['favourites'] \
-            = [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:6]]
+        result['favouriteNewsList'] = [item.toJson() for item in getUserNews(user)]
 
+        matchList = []
+        subscriptionList = Subscription.objects.filter(newsUser=user, accountType='Team')
+        for subscription in subscriptionList:
+            team = Team.objects.filter(id=subscription.accountId).first()
+            matchList.extend(Match.objects.filter(type='Football', homeTeam=team, date__gt=getDateWithDeltaDays(-1), date__lt=getDateWithDeltaDays(1)))
+            matchList.extend(Match.objects.filter(type='Football', awayTeam=team, date__gt=getDateWithDeltaDays(-1), date__lt=getDateWithDeltaDays(1)))
+        result['footballMatchList']['favourites'] = [item.toJson() for item in matchList[:6]]
+
+        matchList = []
+        subscriptionList = Subscription.objects.filter(newsUser=user, accountType='Team')
+        for subscription in subscriptionList:
+            team = Team.objects.filter(id=subscription.accountId).first()
+            matchList.extend(Match.objects.filter(type='Basketball', homeTeam=team, date__gt=getDateWithDeltaDays(-1), date__lt=getDateWithDeltaDays(1)))
+            matchList.extend(Match.objects.filter(type='Basketball', awayTeam=team, date__gt=getDateWithDeltaDays(-1), date__lt=getDateWithDeltaDays(1)))
+        result['basketballMatchList']['favourites'] = [item.toJson() for item in matchList[:6]]
     return JsonResponse(result, safe=False)
 
 
@@ -300,7 +330,7 @@ def MatchesGet(request, matchId):
     match = Match.objects.get(id=matchId)
     result = {
         "match": getModelJsonWithSubscription(getUser(request), match),
-        "latestNewsList": getModelNews(match),
+        "latestNewsList": [item.toJson() for item in getModelNews(match)],
     }
     return JsonResponse(result, safe=False)
 
@@ -309,7 +339,7 @@ def NewsGet(request, newsId):
     news = News.objects.get(id=newsId)
     result = {
         "news": news.toJson(),
-        "relatedNewsList": getRelatedNews(news),
+        "relatedNewsList": [item.toJson() for item in getRelatedNews(news)],
     }
     return JsonResponse(result, safe=False)
 
@@ -344,7 +374,7 @@ def PlayersGet(request, playerId):
 
     result = {
         "player": getModelJsonWithSubscription(getUser(request), player),
-        "latestNewsList": getModelNews(player),
+        "latestNewsList": [item.toJson() for item in getModelNews(player)],
         "statisticsTable": {
             "colList": ['STATISTICS'] + [key for key in eventListDict.keys()],
             "tableRowList": statisticsTableRowList,
@@ -403,7 +433,7 @@ def TeamsGet(request, teamId):
 
     result = {
         "team": getModelJsonWithSubscription(getUser(request), team),
-        "latestNewsList": getModelNews(team),
+        "latestNewsList": [item.toJson() for item in getModelNews(team)],
         "matchesTable": {
             "colList": ["MATCHES", "status", "goals", "date", "stadium"],
             "tableRowList": matchesTableRowList,

@@ -51,7 +51,7 @@ class Account(models.Model):
             description=self.description,
             image=self.image.url,
             backgroundImage=self.backgroundImage.url,
-            dateCreated=self.created_at.timestamp(),
+            dateCreated=int(self.created_at.timestamp()*1000),
         )
 
     class Meta:
@@ -153,6 +153,8 @@ class League(Account):
         superDict = super(League, self).toJson()
         superDict['matchList'] = matchList
         superDict['nextMatch'] = self.matchList.all()[0].toJson()
+        superDict['startDate'] = int(self.startDate.timestamp()*1000)
+        superDict['finished'] = self.finished
         superDict['leagueTeamTable'] = {
             'colList': ["LEAGUE TABLE", "points", "games", "score for", "score against", "score difference"],
             'tableRowList': leagueTeamTableRowList,
@@ -254,11 +256,11 @@ class Match(models.Model):
             awayScore=self.awayScore,
             homePoints=self.homePoints,
             awayPoints=self.awayPoints,
-            date=self.date.timestamp(),
+            date=int(self.date.timestamp()*1000),
             stadium=self.stadium.toJson(),
             matchStatistics=self.matchStatistic.toJson(),
             time=self.time,
-            dateCreated=self.created_at.timestamp(),
+            dateCreated=int(self.created_at.timestamp()*1000),
             leagueId=self.league.id,
         )
 
@@ -348,7 +350,7 @@ class News(models.Model):
             author=self.author.toJson(),
             tagList=tagList,
             commentList=commentList,
-            dateCreated=self.created_at.timestamp(),
+            dateCreated=int(self.created_at.timestamp()*1000),
         )
 
     class Meta:
@@ -368,7 +370,7 @@ class Comment(models.Model):
         return dict(
             id=self.id,
             body=self.body,
-            dateCreated=self.created_at.timestamp(),
+            dateCreated=int(self.created_at.timestamp()*1000),
             author=self.author.toJson(),
             newsId=self.news.id,
         )
