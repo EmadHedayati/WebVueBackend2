@@ -45,7 +45,8 @@ def signup(request):
         newsUser = NewsUser.objects.create(user=user, token=uuid.uuid4())
         newsUser.save()
         result = {
-            'activationUrl': 'http://127.0.0.1:8000/api/activate/' + urlsafe_base64_encode(force_bytes(user.pk)).decode() + '/' +
+            'activationUrl': 'http://127.0.0.1:8000/api/activate/' + urlsafe_base64_encode(
+                force_bytes(user.pk)).decode() + '/' +
                              account_activation_token.make_token(user),
         }
     return JsonResponse(result, safe=False)
@@ -72,7 +73,7 @@ def login(request):
 
 
 @csrf_exempt
-def activate(request, uidb64, token):
+def Activate(request, uidb64, token):
     try:
         uid = force_text(urlsafe_base64_decode(uidb64))
         user = User.objects.get(pk=uid)
@@ -91,10 +92,21 @@ def activate(request, uidb64, token):
     return JsonResponse(result, safe=False)
 
 
+@csrf_exempt
+def ForgetPassword(request, uidb64, token):
+    try:
+        uid = force_text(urlsafe_base64_decode(uidb64))
+        user = User.objects.get(pk=uid)
+    except(TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+    result = {}
+    return JsonResponse(result, safe=False)
+
+
 def getUser(request):
     try:
         user = authenticate(username=request.META['HTTP_USERNAME'], password=request.META['HTTP_PASSWORD'])
-        return user
+        return NewsUser.objects.filter(user=user).first()
     except:
         return None
 
@@ -118,41 +130,108 @@ def test(request):
     return JsonResponse(result, safe=False)
 
 
-def getNewsRelatedToAccount(model):
-    # todo: implement this
-    type = ''
-    if isinstance(model, Match):
-        type = 'Match'
-    if isinstance(model, League):
-        type = 'League'
-    if isinstance(model, Team):
-        type = 'Team'
-    if isinstance(model, Player):
-        type = 'Player'
-    if isinstance(model, Stadium):
-        type = 'Stadium'
-
-    tagList = Tag.objects.all().filter(accountType=type, accountId=model.id)
-    newsList = [newsTag.news for newsTag in NewsTag.objects.all().filter(tag__in=tagList)[:3]]
-    return [item.toJson() for item in newsList]
-
-
 def getSliderNews():
     # todo: implement this
     return [item.toJson() for item in News.objects.all()[:5]]
 
 
 def getLatestNews():
+    return [item.toJson() for item in News.objects.all()[:10]] \
+           + [item.toJson() for item in News.objects.all()[:10]] \
+           + [item.toJson() for item in News.objects.all()[:10]] \
+           + [item.toJson() for item in News.objects.all()[:10]] \
+           + [item.toJson() for item in News.objects.all()[:10]] \
+           + [item.toJson() for item in News.objects.all()[:10]] \
+           + [item.toJson() for item in News.objects.all()[:10]]
+
+
+def getRelatedNews(news):
+    return [item.toJson() for item in News.objects.all().filter(author=news.author)[:3]]
+
+
+def getUserNews(user):
     return [item.toJson() for item in News.objects.all()[:3]]
 
 
-def getNews(model):
-    if isinstance(model, News):
-        return [item.toJson() for item in News.objects.all().filter(author=model.author)[:3]]
-    if isinstance(model, User):
-        # todo: query favourite news for user
-        return [item.toJson() for item in News.objects.all()[:3]]
-    return getNewsRelatedToAccount(model)
+def getModelNews(model):
+    type = ''
+    if isinstance(model, Match):
+        type = 'Match'
+    elif isinstance(model, League):
+        type = 'League'
+    elif isinstance(model, Team):
+        type = 'Team'
+    elif isinstance(model, Player):
+        type = 'Player'
+    elif isinstance(model, Stadium):
+        type = 'Stadium'
+    else:
+        return []
+
+    tagList = Tag.objects.all().filter(accountType=type, accountId=model.id)
+    newsList = [newsTag.news for newsTag in NewsTag.objects.all().filter(tag__in=tagList)[:3]]
+    return [item.toJson() for item in newsList]
+
+
+def isSubscribed(user, accountType, accountId):
+    if Subscription.objects.all().filter(newsUser=user, accountType=accountType, accountId=accountId).count() > 0:
+        return True
+    else:
+        return False
+
+
+@csrf_exempt
+def Subscribe(request):
+    body = json.loads(request.body)
+    if not isSubscribed(getUser(request), body['accountType'], body['accountId']):
+        Subscription.objects.create(newsUser=getUser(request), accountType=body['accountType'], accountId=body['accountId'])
+    result = {
+        "subscribed": True
+    }
+    return JsonResponse(result, safe=False)
+
+
+@csrf_exempt
+def Unsubscribe(request):
+    body = json.loads(request.body)
+    if isSubscribed(getUser(request), body['accountType'], body['accountId']):
+        Subscription.objects.filter(newsUser=getUser(request), accountType=body['accountType'], accountId=body['accountId']).delete()
+    result = {
+        "subscribed": False
+    }
+    return JsonResponse(result, safe=False)
+
+
+@csrf_exempt
+def NewsComment(request):
+    body = json.loads(request.body)
+    news = News.objects.filter(id=int(body['newsId'])).first()
+    if getUser(request) is not None:
+        comment = Comment.objects.create(author=getUser(request), body=body['body'], news=news)
+        result = {
+            "comment": comment.toJson()
+        }
+    else:
+        result = {
+            "error": 'Not registered'
+        }
+    return JsonResponse(result, safe=False)
+
+
+def getModelJsonWithSubscription(user, model):
+    json = model.toJson()
+    if isinstance(model, Match):
+        type = 'Match'
+    elif isinstance(model, League):
+        type = 'League'
+    elif isinstance(model, Team):
+        type = 'Team'
+    elif isinstance(model, Player):
+        type = 'Player'
+    elif isinstance(model, Stadium):
+        type = 'Stadium'
+    json['subscribed'] = isSubscribed(user, type, model.id)
+    return json
 
 
 def homeIndex(request):
@@ -168,9 +247,11 @@ def homeIndex(request):
     }
     user = getUser(request)
     if user is not None:
-        result['favouriteNewsList'] = getNews(user)
-        result['footballMatchList']['favourites'] = [item.toJson() for item in Match.objects.all().filter(type='Football')[:2]]
-        result['basketballMatchList']['favourites'] = [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:2]]
+        result['favouriteNewsList'] = getUserNews(user)
+        result['footballMatchList']['favourites'] \
+            = [item.toJson() for item in Match.objects.all().filter(type='Football')[:6]]
+        result['basketballMatchList']['favourites'] \
+            = [item.toJson() for item in Match.objects.all().filter(type='Basketball')[:6]]
 
     return JsonResponse(result, safe=False)
 
@@ -178,12 +259,26 @@ def homeIndex(request):
 def LeaguesIndex(request):
     result = {}
     if request.GET.get('q'):
-        result = {
-            "upcomingLeagueList": [item.toJson() for item in League.objects.all().filter(
-                startDate__gt=datetime.date.today(), title__exact=request.GET.get('q'))],
-            "finishedLeagueList": [item.toJson() for item in League.objects.all().filter(
-                finished=True, title__exact=request.GET.get('q'))],
-        }
+        search = request.GET.get('q')
+        parts = search.split(' ')
+        date = datetime.date.today()
+        if parts[-1].isnumeric():
+            newSearch = ' '.join(parts[:-1])
+            startDate = date.replace(year=int(parts[-1]), month=1, day=1)
+            finishDate = date.replace(year=int(parts[-1]) + 1, month=1, day=1)
+            result = {
+                "upcomingLeagueList": [item.toJson() for item in League.objects.all().filter(
+                    startDate__gt=datetime.date.today(), title__exact=newSearch, startDate__lt=finishDate)],
+                "finishedLeagueList": [item.toJson() for item in League.objects.all().filter(
+                    startDate__gt=startDate, finished=True, title__exact=newSearch, startDate__lt=finishDate)],
+            }
+        else:
+            result = {
+                "upcomingLeagueList": [item.toJson() for item in League.objects.all().filter(
+                    startDate__gt=datetime.date.today(), title__exact=search)],
+                "finishedLeagueList": [item.toJson() for item in League.objects.all().filter(
+                    finished=True, title__exact=search)],
+            }
     else:
         result = {
             "upcomingLeagueList": [item.toJson() for item in
@@ -196,7 +291,7 @@ def LeaguesIndex(request):
 def LeaguesGet(request, leagueId):
     league = League.objects.get(id=leagueId)
     result = {
-        "league": league.toJson(),
+        "league": getModelJsonWithSubscription(getUser(request), league),
     }
     return JsonResponse(result, safe=False)
 
@@ -204,8 +299,8 @@ def LeaguesGet(request, leagueId):
 def MatchesGet(request, matchId):
     match = Match.objects.get(id=matchId)
     result = {
-        "match": match.toJson(),
-        "latestNewsList": getNews(match),
+        "match": getModelJsonWithSubscription(getUser(request), match),
+        "latestNewsList": getModelNews(match),
     }
     return JsonResponse(result, safe=False)
 
@@ -214,7 +309,7 @@ def NewsGet(request, newsId):
     news = News.objects.get(id=newsId)
     result = {
         "news": news.toJson(),
-        "relatedNewsList": getNews(news),
+        "relatedNewsList": getRelatedNews(news),
     }
     return JsonResponse(result, safe=False)
 
@@ -230,29 +325,32 @@ def PlayersGet(request, playerId):
             eventListDict[event.title] = 1
 
     statisticsTableRowList = [{
-        "banner": player.toJson(),
+        "banner": getModelJsonWithSubscription(getUser(request), player),
         "rowData": [value for value in eventListDict.values()],
     }]
 
     naive = player.bornDate.replace(tzinfo=None)
     detailsTableRowList = [{
-        "banner": player.toJson(),
+        "banner": getModelJsonWithSubscription(getUser(request), player),
         "rowData": [
-            (datetime.datetime.today() - naive).days / 365,
+            int((datetime.datetime.today() - naive).days / 365),
             player.post,
+            player.height,
+            player.weight,
+            player.nationality,
             player.team.title,
         ],
     }]
 
     result = {
-        "player": player.toJson(),
-        "latestNewsList": getNews(player),
+        "player": getModelJsonWithSubscription(getUser(request), player),
+        "latestNewsList": getModelNews(player),
         "statisticsTable": {
             "colList": ['STATISTICS'] + [key for key in eventListDict.keys()],
             "tableRowList": statisticsTableRowList,
         },
         "detailsTable": {
-            "colList": ["DETAILS", "age", "post", "team"],
+            "colList": ["DETAILS", "age", "post", "height", "weight", "nationality", "team"],
             "tableRowList": detailsTableRowList,
         },
     }
@@ -304,8 +402,8 @@ def TeamsGet(request, teamId):
         })
 
     result = {
-        "team": team.toJson(),
-        "latestNewsList": getNews(team),
+        "team": getModelJsonWithSubscription(getUser(request), team),
+        "latestNewsList": getModelNews(team),
         "matchesTable": {
             "colList": ["MATCHES", "status", "goals", "date", "stadium"],
             "tableRowList": matchesTableRowList,

@@ -15,23 +15,23 @@ class NewsUser(models.Model):
     image = models.ImageField()
 
     def __str__(self):
-        return "{}".format(self.user.username)
+        return "{} ({})".format(self.user.username, self.user.id)
 
     def toJson(self):
-        # image = ''
-        # if self.image is not None:
-        #     image = self.image.url
+        image = ''
+        if self.image is not None:
+            image = self.image.url
         return dict(
             id=self.user.id,
             title=self.user.username,
             fullname=self.user.get_full_name(),
             username=self.user.username,
             email=self.user.email,
-            # image=image,
+            image=image,
         )
 
     class Meta:
-        verbose_name_plural = "Users"
+        verbose_name_plural = "NewsUsers"
 
 
 class Account(models.Model):
@@ -62,7 +62,7 @@ class Team(Account):
     shortTitle = models.CharField(max_length=10)
 
     def __str__(self):
-        return "{} also known as {}".format(self.title, self.shortTitle)
+        return "{} also known as {} ({})".format(self.title, self.shortTitle, self.id)
 
     def toJson(self):
         playerList = [player.toJson() for player in self.playerList.all()]
@@ -80,16 +80,22 @@ class Player(Account):
     bornDate = models.DateTimeField()
     post = models.CharField(max_length=100)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='playerList', null=True)
+    height = models.IntegerField(null=True)
+    weight = models.IntegerField(null=True)
+    nationality = models.CharField(max_length=100)
 
     def __str__(self):
-        return "{}".format(self.title)
+        return "{} ({})".format(self.title, self.id)
 
     def toJson(self):
         naive = self.bornDate.replace(tzinfo=None)
         superDict = super(Player, self).toJson()
         superDict['type'] = 'Player'
-        superDict['age'] = (datetime.datetime.today() - naive).days / 365
+        superDict['age'] = int((datetime.datetime.today() - naive).days / 365)
         superDict['post'] = self.post
+        superDict['height'] = self.height
+        superDict['weight'] = self.weight
+        superDict['nationality'] = self.nationality
         superDict['teamId'] = self.team.id
         return superDict
 
@@ -102,7 +108,7 @@ class League(Account):
     finished = models.BooleanField(default=False)
 
     def __str__(self):
-        return "{}".format(self.title)
+        return "{} ({})".format(self.title, self.id)
 
     def toJson(self):
         matchList = Match.objects.all().filter(league=self)
@@ -200,7 +206,7 @@ class Statistic(models.Model):
 class Stadium(Account):
 
     def __str__(self):
-        return "{}".format(self.title)
+        return "{} ({})".format(self.title, self.id)
 
     def toJson(self):
         superDict = super(Stadium, self).toJson()
@@ -232,7 +238,7 @@ class Match(models.Model):
     league = models.ForeignKey(League, on_delete=models.CASCADE, related_name='matchList')
 
     def __str__(self):
-        return "{} vs {} in {}".format(self.homeTeam.shortTitle, self.awayTeam.shortTitle, self.date.date())
+        return "{} vs {} in {} ({})".format(self.homeTeam.shortTitle, self.awayTeam.shortTitle, self.date.date(), self.id)
 
     def toJson(self):
         homeEventList = [event.toJson() for event in Event.objects.all().filter(team=self.homeTeam, match=self)]
@@ -271,7 +277,7 @@ class Event(models.Model):
     match = models.ForeignKey(Match, on_delete=models.CASCADE)
 
     def __str__(self):
-        return "{} in {}".format(self.title, self.match.__str__())
+        return "{} in {} ({})".format(self.title, self.match.__str__(), self.id)
 
     def toJson(self):
         return dict(
@@ -304,7 +310,7 @@ class Tag(models.Model):
     accountId = models.IntegerField(null=True)
 
     def __str__(self):
-        return "{}".format(self.title)
+        return "{} ({})".format(self.title, self.id)
 
     def toJson(self):
         return dict(
@@ -328,7 +334,7 @@ class News(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return "{}".format(self.title)
+        return "{} ({})".format(self.title, self.id)
 
     def toJson(self):
         tagList = [tag.toJson() for tag in self.tagList.all()]
@@ -356,7 +362,7 @@ class Comment(models.Model):
     news = models.ForeignKey(News, on_delete=models.CASCADE, null=False, related_name='commentList')
 
     def __str__(self):
-        return "{} by {}".format(self.body, self.author.username)
+        return "{} by {} ({})".format(self.body, self.author.user.username, self.id)
 
     def toJson(self):
         return dict(
@@ -376,7 +382,7 @@ class NewsTag(models.Model):
     tag = models.ForeignKey(Tag, on_delete=models.CASCADE)
 
     def __str__(self):
-        return "{} tag in {} news".format(self.tag.title, self.news.title)
+        return "{} tag in {} news ({})".format(self.tag.title, self.news.title, self.id)
 
     def toJson(self):
         return dict(
@@ -387,3 +393,30 @@ class NewsTag(models.Model):
 
     class Meta:
         verbose_name_plural = "NewsTags"
+
+
+class Subscription(models.Model):
+    TYPE_LIST = (
+        ('Match', 'Match'),
+        ('League', 'League'),
+        ('Team', 'Team'),
+        ('Player', 'Player'),
+        ('Stadium', 'Stadium'),
+    )
+
+    newsUser = models.ForeignKey(NewsUser, on_delete=models.CASCADE)
+    accountType = models.CharField(max_length=100, choices=TYPE_LIST, null=True)
+    accountId = models.IntegerField(null=True)
+
+    def __str__(self):
+        return "{} in {}{} ({})".format(self.newsUser.user.username, self.accountType, self.accountId, self.id)
+
+    def toJson(self):
+        return dict(
+            id=self.id,
+            accountId=self.accountId,
+            accountType=self.accountType,
+        )
+
+    class Meta:
+        verbose_name_plural = "Subscriptions"
